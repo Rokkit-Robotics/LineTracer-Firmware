@@ -11,12 +11,15 @@
 static volatile long _enc_left = 0;
 static volatile long _enc_right = 0;
 
+static volatile uint8_t _enc_dir_left = FORWARD;
+static volatile uint8_t _enc_dir_right = FORWARD;
+
 // encoder signal timestamps, just to calculate speed
 static volatile long _enc_left_ts = 0;
 static volatile long _enc_right_ts = 0;
 
-static volatile long _enc_left_dt = 0;
-static volatile long _enc_right_dt = 0;
+static volatile long _enc_left_dt = ENC_MAX_SPEED + 10;
+static volatile long _enc_right_dt = ENC_MAX_SPEED + 10;
 
 // Timer/Counter2 interrupt
 // To clear encoder data to avoid overflow
@@ -37,7 +40,13 @@ ISR(TIMER2_OVF_vect)
 
 static void enc_left_interrupt()
 {
-  _enc_left++;
+  if (((ENCODER_LEFT_A_PIN & ENCODER_LEFT_A_BIT) != 0) ^ ((ENCODER_LEFT_B_PIN & ENCODER_LEFT_B_BIT) != 0)) {
+    _enc_left++;
+    _enc_dir_left = FORWARD;
+  } else {
+    _enc_left--;
+    _enc_dir_left = BACKWARD;
+  }
 
   long m = micros();
 
@@ -51,7 +60,13 @@ static void enc_left_interrupt()
 
 static void enc_right_interrupt()
 {
-  _enc_right++;
+  if (((ENCODER_RIGHT_A_PIN & ENCODER_RIGHT_A_BIT) != 0) ^ ((ENCODER_RIGHT_B_PIN & ENCODER_RIGHT_B_BIT) != 0)) {
+    _enc_right++;
+    _enc_dir_right = FORWARD;
+  } else {
+    _enc_right--;
+    _enc_dir_right = BACKWARD;
+  }
 
   long m = micros();
 
@@ -66,11 +81,13 @@ static void enc_right_interrupt()
 
 void enc_init()
 {
-  pinMode(ENCODER_LEFT, INPUT);
-  pinMode(ENCODER_RIGHT, INPUT);
+  pinMode(ENCODER_LEFT_A, INPUT);
+  pinMode(ENCODER_LEFT_B, INPUT);
+  pinMode(ENCODER_RIGHT_A, INPUT);
+  pinMode(ENCODER_RIGHT_B, INPUT);
 
-  attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT), enc_left_interrupt, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT), enc_right_interrupt, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_LEFT_A), enc_left_interrupt, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_RIGHT_A), enc_right_interrupt, CHANGE);
 
   // init Timer/Counter 2 for encoder control
   TCCR2A = 0;
@@ -81,9 +98,17 @@ void enc_init()
 long enc_getPath(int side)
 {
   if (side == LEFT)
+#ifdef ENCODER_INV_LEFT
+    return -_enc_left;
+#else
     return _enc_left;
+#endif
   else
+#ifdef ENCODER_INV_RIGHT
+    return -_enc_right;
+#else
     return _enc_right;
+#endif
 }
 
 // TODO: migrate to ARM asap! Floating point will 
@@ -91,12 +116,23 @@ long enc_getPath(int side)
 int enc_getSpeed(int side)
 {
   long dt;
+  uint8_t dir;
 
   ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
     if (side == LEFT) {
       dt = _enc_left_dt;
+#ifdef ENCODER_INV_LEFT
+      dir = !_enc_dir_left;
+#else
+      dir = _enc_dir_left;
+#endif
     } else {
       dt = _enc_right_dt;
+#ifdef ENCODER_INV_RIGHT
+      dir = !_enc_dir_right;
+#else
+      dir = _enc_dir_right;
+#endif
     }
   }
 
@@ -104,7 +140,7 @@ int enc_getSpeed(int side)
   if (dt == 0)
     dt = 1;
 
-  return ENC_MAX_SPEED / dt;
+  return dir ? (ENC_MAX_SPEED / dt) : -(ENC_MAX_SPEED / dt);
 }
 
 void enc_reset()

@@ -12,6 +12,14 @@
 #define RIGHT 1
 #endif
 
+#ifndef FORWARD
+#define FORWARD 1
+#endif
+
+#ifndef BACKWARD
+#define BACKWARD !(FORWARD)
+#endif
+
 /// Default encoder max speed
 /// Used as a divident in speed formula
 #define ENC_MAX_SPEED 128000
